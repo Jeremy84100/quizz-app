@@ -421,23 +421,37 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
                   selectedAnswers[currentQuestionIndex] || []
                 ).includes(originalIndex);
                 return (
-                  <button
+                  <div
                     key={originalIndex}
                     onClick={() => handleAnswerSelect(originalIndex)}
-                    className={`w-full p-4 text-left rounded-lg border transition-colors ${
+                    className={`w-full p-4 text-left rounded-lg border transition-colors cursor-pointer ${
                       isSelected
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border bg-background hover:bg-accent text-foreground"
                     }`}>
                     <div className="flex items-center gap-3">
-                      <Checkbox
-                        checked={isSelected}
-                        disabled
-                        className="pointer-events-none"
-                      />
+                      <div
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                          isSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-input"
+                        }`}>
+                        {isSelected && (
+                          <svg
+                            className="w-3 h-3"
+                            fill="currentColor"
+                            viewBox="0 0 20 20">
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        )}
+                      </div>
                       <span>{option}</span>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
           </div>

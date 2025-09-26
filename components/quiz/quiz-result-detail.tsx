@@ -42,6 +42,30 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
     questions.map((q) => ({ id: q.id, text: q.question_text }))
   );
 
+  // Helper function to check if an answer is correct
+  const isCorrect = (question: Question, userAnswer: number | number[]) => {
+    // Handle both single answer (number) and multiple answers (number[])
+    if (Array.isArray(userAnswer)) {
+      const correctAnswers = question.correct_answers || [
+        question.correct_answer,
+      ];
+      // Check if all selected answers are correct and all correct answers are selected
+      const allSelectedAreCorrect = userAnswer.every((idx: number) =>
+        correctAnswers.includes(idx)
+      );
+      const allCorrectAreSelected = correctAnswers.every((idx: number) =>
+        userAnswer.includes(idx)
+      );
+      return allSelectedAreCorrect && allCorrectAreSelected;
+    } else {
+      // Single answer
+      const correctAnswers = question.correct_answers || [
+        question.correct_answer,
+      ];
+      return correctAnswers.includes(userAnswer);
+    }
+  };
+
   // Calculate statistics
   const totalQuestions = result.total_questions;
   const correctAnswers = result.score;
@@ -88,29 +112,6 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
 
   const getAnswerText = (question: Question, answerIndex: number) => {
     return question.options[answerIndex] || "Réponse non trouvée";
-  };
-
-  const isCorrect = (question: Question, userAnswer: number | number[]) => {
-    // Handle both single answer (number) and multiple answers (number[])
-    if (Array.isArray(userAnswer)) {
-      const correctAnswers = question.correct_answers || [
-        question.correct_answer,
-      ];
-      // Check if all selected answers are correct and all correct answers are selected
-      const allSelectedAreCorrect = userAnswer.every((idx: number) =>
-        correctAnswers.includes(idx)
-      );
-      const allCorrectAreSelected = correctAnswers.every((idx: number) =>
-        userAnswer.includes(idx)
-      );
-      return allSelectedAreCorrect && allCorrectAreSelected;
-    } else {
-      // Single answer - check if it's in the correct answers
-      const correctAnswers = question.correct_answers || [
-        question.correct_answer,
-      ];
-      return correctAnswers.includes(userAnswer);
-    }
   };
 
   return (

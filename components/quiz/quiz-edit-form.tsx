@@ -591,7 +591,7 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
 
         {error && (
           <Card className="bg-destructive/10 border-destructive/20">
-            <CardContent className="pt-6">
+            <CardContent>
               <p className="text-destructive text-sm">{error}</p>
             </CardContent>
           </Card>

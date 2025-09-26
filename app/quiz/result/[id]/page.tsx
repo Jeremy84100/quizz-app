@@ -60,7 +60,7 @@ export default async function QuizResultDetailPage({
     <div className="min-h-screen bg-background">
       <DashboardHeader user={userData.user} />
 
-      <main className="container mx-auto px-4 py-4 sm:py-8 pb-20 md:pb-8">
+      <main className="container mx-auto px-4 py-4 sm:py-8 pb-8">
         <QuizResultDetail
           result={{
             ...result,

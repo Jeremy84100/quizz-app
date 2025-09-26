@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { QuizResults } from "@/components/quiz/quiz-results";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 
 interface QuizResultsPageProps {
   params: {
@@ -38,9 +39,11 @@ export default async function QuizResultsPage({
     <div className="min-h-screen bg-background">
       <DashboardHeader user={userData.user} />
 
-      <main className="container mx-auto px-4 py-4 sm:py-8 pb-20 md:pb-8">
+      <main className="container mx-auto px-4 py-4 sm:py-8 pb-32 md:pb-8">
         <QuizResults quiz={quiz} />
       </main>
+
+      <MobileBottomNav user={userData.user} />
     </div>
   );
 }

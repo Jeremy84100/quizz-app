@@ -139,13 +139,27 @@ export function QuizGrid({ userId }: QuizGridProps) {
     setSharingQuiz(quizId);
     try {
       const quizUrl = `${window.location.origin}/quiz/preview/${quizId}`;
-      await navigator.clipboard.writeText(quizUrl);
 
-      // Optionnel : afficher une notification de succès
-      alert("Lien du quiz copié dans le presse-papiers !");
+      // Vérifier si l'API Web Share est disponible
+      if (navigator.share) {
+        await navigator.share({
+          title: `Quiz: ${
+            quizzes.find((q) => q.id === quizId)?.title || "Quiz"
+          }`,
+          text: `Venez jouer à ce quiz !`,
+          url: quizUrl,
+        });
+      } else {
+        // Fallback: copier dans le presse-papiers
+        await navigator.clipboard.writeText(quizUrl);
+        alert("Lien du quiz copié dans le presse-papiers !");
+      }
     } catch (error) {
       console.error("Error sharing quiz:", error);
-      alert("Erreur lors du partage");
+      // Si l'utilisateur annule le partage, ne pas afficher d'erreur
+      if (error instanceof Error && error.name !== "AbortError") {
+        alert("Erreur lors du partage");
+      }
     } finally {
       setSharingQuiz(null);
     }
@@ -280,7 +294,7 @@ export function QuizGrid({ userId }: QuizGridProps) {
             )}
 
             <div className="flex items-center gap-2 mb-3">
-              <Link href={`/quiz/preview/${quiz.id}`} className="flex-1">
+              <Link href={`/quiz/play/${quiz.id}`} className="flex-1">
                 <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-sm">
                   <Play className="h-4 w-4 mr-2" />
                   Jouer

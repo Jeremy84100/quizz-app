@@ -70,13 +70,25 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
     setIsSharing(true);
     try {
       const quizUrl = `${window.location.origin}/quiz/preview/${id}`;
-      await navigator.clipboard.writeText(quizUrl);
 
-      // Optionnel : afficher une notification de succès
-      alert("Lien copié dans le presse-papiers !");
+      // Vérifier si l'API Web Share est disponible
+      if (navigator.share) {
+        await navigator.share({
+          title: `Quiz: ${quiz?.title || "Quiz"}`,
+          text: `Venez jouer à ce quiz !`,
+          url: quizUrl,
+        });
+      } else {
+        // Fallback: copier dans le presse-papiers
+        await navigator.clipboard.writeText(quizUrl);
+        alert("Lien copié dans le presse-papiers !");
+      }
     } catch (error) {
       console.error("Error sharing quiz:", error);
-      alert("Erreur lors du partage");
+      // Si l'utilisateur annule le partage, ne pas afficher d'erreur
+      if (error instanceof Error && error.name !== "AbortError") {
+        alert("Erreur lors du partage");
+      }
     } finally {
       setIsSharing(false);
     }
@@ -101,7 +113,7 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
+          <CardContent>
             <div className="text-center">
               <h2 className="text-2xl font-bold text-destructive mb-4">
                 Quiz non trouvé
@@ -152,7 +164,7 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
         {/* Quiz Info Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Card>
-            <CardContent className="pt-6">
+            <CardContent>
               <div className="flex items-center space-x-2">
                 <Users className="h-5 w-5 text-primary" />
                 <div>
@@ -166,7 +178,7 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
+            <CardContent>
               <div className="flex items-center space-x-2">
                 <Clock className="h-5 w-5 text-primary" />
                 <div>
@@ -180,7 +192,7 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
           </Card>
 
           <Card>
-            <CardContent className="pt-6">
+            <CardContent>
               <div className="flex items-center space-x-2">
                 <Badge variant="secondary" className="text-sm">
                   Quiz
