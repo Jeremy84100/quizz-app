@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,14 +16,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Save, ArrowLeft, Sparkles, Shuffle } from "lucide-react";
+import { ImageUpload } from "@/components/ui/image-upload";
+import { uploadImageToStorage } from "@/lib/supabase/storage";
+import { optimizeImage, optimizedImageToFile } from "@/lib/image-optimizer";
+import {
+  Plus,
+  Trash2,
+  Save,
+  ArrowLeft,
+  Sparkles,
+  Shuffle,
+  Image as ImageIcon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
+import { ImageZoom } from "@/components/ui/image-zoom";
 
 interface Question {
   id: string;
   question_text: string;
+  question_image_url?: string;
   options: string[];
+  option_images?: (string | null)[];
   correct_answer: number; // Keep for backward compatibility
   correct_answers: number[]; // New field for multiple correct answers
 }
@@ -39,7 +54,9 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
     {
       id: crypto.randomUUID(),
       question_text: "",
+      question_image_url: undefined,
       options: ["", "", "", ""],
+      option_images: [null, null, null, null],
       correct_answer: 0,
       correct_answers: [0],
     },
@@ -48,6 +65,7 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addQuestion = () => {
     setQuestions([
@@ -55,7 +73,9 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
       {
         id: crypto.randomUUID(),
         question_text: "",
+        question_image_url: undefined,
         options: ["", "", "", ""],
+        option_images: [null, null, null, null],
         correct_answer: 0,
         correct_answers: [0],
       },
@@ -94,6 +114,305 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
             }
           : q
       )
+    );
+  };
+
+  const updateQuestionImage = (questionId: string, imageUrl: string | null) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === questionId
+          ? { ...q, question_image_url: imageUrl || undefined }
+          : q
+      )
+    );
+  };
+
+  const updateOptionImage = (
+    questionId: string,
+    optionIndex: number,
+    imageUrl: string | null
+  ) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === questionId
+          ? {
+              ...q,
+              option_images:
+                q.option_images?.map((img, idx) =>
+                  idx === optionIndex ? imageUrl : img
+                ) || [],
+            }
+          : q
+      )
+    );
+  };
+
+  const [currentUpload, setCurrentUpload] = useState<{
+    questionId: string;
+    optionIndex?: number;
+    type: "question" | "option";
+  } | null>(null);
+
+  // Stockage temporaire des images optimisées
+  const [tempImages, setTempImages] = useState<Map<string, File>>(new Map());
+
+  const handleImageUpload = (questionId: string, optionIndex: number) => {
+    setCurrentUpload({ questionId, optionIndex, type: "option" });
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleQuestionImageUpload = (questionId: string) => {
+    setCurrentUpload({ questionId, type: "question" });
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const uploadImagesToStorage = async (quizId: string) => {
+    console.log(
+      "🚀 [UPLOAD] Début de l'upload des images pour le quiz:",
+      quizId
+    );
+    console.log("📸 [UPLOAD] Nombre d'images à uploader:", tempImages.size);
+
+    const uploadPromises: Promise<void>[] = [];
+
+    for (const [imageKey, imageFile] of tempImages) {
+      console.log(`📁 [UPLOAD] Traitement de l'image: ${imageKey}`);
+      console.log(
+        `📊 [UPLOAD] Taille du fichier: ${(imageFile.size / 1024).toFixed(
+          2
+        )} KB`
+      );
+
+      const uploadPromise = (async () => {
+        try {
+          let result;
+          if (imageKey.startsWith("question-")) {
+            const questionId = imageKey.replace("question-", "");
+            console.log(`❓ [UPLOAD] Upload image de question: ${questionId}`);
+
+            result = await uploadImageToStorage(
+              imageFile,
+              `quiz-questions/${quizId}/${questionId}`
+            );
+
+            console.log(`✅ [UPLOAD] Image de question uploadée:`, result.url);
+            console.log(
+              `📁 [UPLOAD] Chemin dans le bucket: quiz-questions/${quizId}/${questionId}`
+            );
+
+            // Mettre à jour l'URL de l'image de question
+            updateQuestionImage(questionId, result.url);
+            console.log(
+              `🔄 [UPLOAD] URL mise à jour dans l'état pour la question: ${questionId}`
+            );
+          } else if (imageKey.startsWith("option-")) {
+            // Parse option-{questionId}-{optionIndex}
+            const parts = imageKey.split("-");
+            const optionIndex = parts[parts.length - 1]; // Last part is option index
+            const questionId = parts.slice(1, -1).join("-"); // Everything between "option" and last part
+            console.log(
+              `🔘 [UPLOAD] Upload image d'option: question ${questionId}, option ${optionIndex}`
+            );
+
+            result = await uploadImageToStorage(
+              imageFile,
+              `quiz-options/${quizId}/${questionId}`
+            );
+
+            console.log(`✅ [UPLOAD] Image d'option uploadée:`, result.url);
+            console.log(
+              `📁 [UPLOAD] Chemin dans le bucket: quiz-options/${quizId}/${questionId}`
+            );
+
+            // Mettre à jour l'URL de l'image d'option
+            updateOptionImage(questionId, parseInt(optionIndex), result.url);
+            console.log(
+              `🔄 [UPLOAD] URL mise à jour dans l'état pour l'option ${optionIndex} de la question ${questionId}`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ [UPLOAD] Erreur lors de l'upload de l'image ${imageKey}:`,
+            error
+          );
+        }
+      })();
+
+      uploadPromises.push(uploadPromise);
+    }
+
+    console.log("⏳ [UPLOAD] Attente de la fin de tous les uploads...");
+
+    // Attendre que tous les uploads soient terminés
+    await Promise.all(uploadPromises);
+
+    console.log("✅ [UPLOAD] Tous les uploads terminés avec succès!");
+    console.log("🧹 [UPLOAD] Nettoyage des images temporaires...");
+
+    // Nettoyer les images temporaires
+    setTempImages(new Map());
+
+    console.log("🎉 [UPLOAD] Processus d'upload terminé!");
+  };
+
+  const handleFileSelect = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentUpload) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      alert("Veuillez sélectionner un fichier image");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("L'image doit faire moins de 5MB");
+      return;
+    }
+
+    try {
+      console.log("🖼️ [OPTIMIZE] Début de l'optimisation de l'image");
+      console.log(
+        "📊 [OPTIMIZE] Taille originale:",
+        (file.size / 1024).toFixed(2),
+        "KB"
+      );
+      console.log("📝 [OPTIMIZE] Nom du fichier:", file.name);
+      console.log("🎯 [OPTIMIZE] Type d'upload:", currentUpload.type);
+
+      // Optimiser l'image avec Canvas
+      const optimizedImage = await optimizeImage(file, {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.85,
+        format: "jpeg",
+      });
+
+      console.log("✅ [OPTIMIZE] Image optimisée:");
+      console.log(
+        "📏 [OPTIMIZE] Dimensions:",
+        optimizedImage.width,
+        "x",
+        optimizedImage.height
+      );
+      console.log(
+        "📊 [OPTIMIZE] Taille optimisée:",
+        (optimizedImage.size / 1024).toFixed(2),
+        "KB"
+      );
+      console.log(
+        "📈 [OPTIMIZE] Réduction:",
+        ((1 - optimizedImage.size / file.size) * 100).toFixed(1),
+        "%"
+      );
+
+      // Convertir en File optimisé
+      const optimizedFile = optimizedImageToFile(optimizedImage, file.name);
+
+      // Générer une clé unique pour le stockage temporaire
+      const imageKey =
+        currentUpload.type === "question"
+          ? `question-${currentUpload.questionId}`
+          : `option-${currentUpload.questionId}-${currentUpload.optionIndex}`;
+
+      console.log("🔑 [OPTIMIZE] Clé de stockage temporaire:", imageKey);
+
+      // Stocker l'image optimisée temporairement
+      setTempImages((prev) => new Map(prev.set(imageKey, optimizedFile)));
+      console.log("💾 [OPTIMIZE] Image stockée temporairement");
+
+      // Créer une URL temporaire pour l'aperçu
+      const tempUrl = URL.createObjectURL(optimizedFile);
+      console.log("🔗 [OPTIMIZE] URL temporaire créée:", tempUrl);
+
+      // Mettre à jour l'état avec l'URL temporaire
+      if (currentUpload.type === "question") {
+        updateQuestionImage(currentUpload.questionId, tempUrl);
+        console.log(
+          "🔄 [OPTIMIZE] URL mise à jour pour la question:",
+          currentUpload.questionId
+        );
+      } else {
+        updateOptionImage(
+          currentUpload.questionId,
+          currentUpload.optionIndex!,
+          tempUrl
+        );
+        console.log(
+          "🔄 [OPTIMIZE] URL mise à jour pour l'option:",
+          currentUpload.optionIndex,
+          "de la question:",
+          currentUpload.questionId
+        );
+      }
+
+      setCurrentUpload(null);
+      console.log("🎉 [OPTIMIZE] Optimisation terminée avec succès!");
+    } catch (error) {
+      console.error(
+        "❌ [OPTIMIZE] Erreur lors de l'optimisation de l'image:",
+        error
+      );
+      alert("Erreur lors de l'optimisation de l'image");
+      setCurrentUpload(null);
+    }
+  };
+
+  const addOption = (questionId: string) => {
+    console.log("Adding option for question:", questionId);
+    setQuestions(
+      questions.map((q) => {
+        if (q.id === questionId) {
+          const currentOptionImages = q.option_images || [];
+          const newQuestion = {
+            ...q,
+            options: [...q.options, ""],
+            option_images: [...currentOptionImages, null],
+          };
+          console.log("New question:", newQuestion);
+          return newQuestion;
+        }
+        return q;
+      })
+    );
+  };
+
+  const removeOption = (questionId: string, optionIndex: number) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id === questionId) {
+          const newOptions = q.options.filter((_, idx) => idx !== optionIndex);
+          const newOptionImages = (q.option_images || []).filter(
+            (_, idx) => idx !== optionIndex
+          );
+
+          // Adjust correct_answers indices
+          const newCorrectAnswers = (q.correct_answers || [])
+            .map((idx) => {
+              if (idx > optionIndex) return idx - 1;
+              if (idx === optionIndex) return -1; // Remove this answer
+              return idx;
+            })
+            .filter((idx) => idx !== -1);
+
+          return {
+            ...q,
+            options: newOptions,
+            option_images: newOptionImages,
+            correct_answers:
+              newCorrectAnswers.length > 0 ? newCorrectAnswers : [0],
+            correct_answer: newCorrectAnswers[0] || 0,
+          };
+        }
+        return q;
+      })
     );
   };
 
@@ -261,8 +580,11 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
         return false;
       }
 
-      const filledOptions = question.options.filter((opt) => opt.trim());
-      if (filledOptions.length < 2) {
+      // Check if options have either text or image
+      const validOptions = question.options.filter(
+        (opt, index) => opt.trim() || question.option_images?.[index]
+      );
+      if (validOptions.length < 2) {
         setError(`La question ${i + 1} doit avoir au moins 2 réponses`);
         return false;
       }
@@ -275,8 +597,10 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
         return false;
       }
 
-      const hasValidCorrectAnswers = correctAnswers.every((answerIndex) =>
-        question.options[answerIndex]?.trim()
+      const hasValidCorrectAnswers = correctAnswers.every(
+        (answerIndex) =>
+          question.options[answerIndex]?.trim() ||
+          question.option_images?.[answerIndex]
       );
       if (!hasValidCorrectAnswers) {
         setError(
@@ -316,20 +640,46 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
 
       if (quizError) throw quizError;
 
+      // Upload images to Supabase Storage BEFORE saving option images
+      console.log(
+        "📤 [SAVE] Début de l'upload des images avant sauvegarde des options"
+      );
+      await uploadImagesToStorage(quizData.id);
+      console.log(
+        "✅ [SAVE] Upload des images terminé, maintenant sauvegarde des URLs Supabase"
+      );
+
+      // Recalculate questions after image upload to get updated state
+      const updatedQuestions = questions;
+      console.log("🔄 [SAVE] Recalcul des questions après upload des images");
+
+      // Log the updated state to verify URLs are correct
+      updatedQuestions.forEach((question, index) => {
+        console.log(`📝 [SAVE] Question ${index + 1} après upload:`, {
+          id: question.id,
+          option_images: question.option_images,
+        });
+      });
+
       // Create questions
-      const questionsToInsert = questions
+      const questionsToInsert = updatedQuestions
         .filter(
           (q) =>
             q.question_text.trim() &&
-            q.options.filter((opt) => opt.trim()).length >= 2
+            q.options.filter(
+              (opt, index) => opt.trim() || q.option_images?.[index]
+            ).length >= 2
         )
         .map((question, index) => {
           // Filter out empty options and adjust correct_answers indices
           const nonEmptyOptions = question.options.filter(
-            (opt) => opt && opt.trim() !== ""
+            (opt, index) =>
+              (opt && opt.trim() !== "") || question.option_images?.[index]
           );
           const optionMapping = question.options.map((opt, idx) =>
-            opt && opt.trim() !== "" ? nonEmptyOptions.indexOf(opt) : -1
+            (opt && opt.trim() !== "") || question.option_images?.[idx]
+              ? nonEmptyOptions.indexOf(opt)
+              : -1
           );
 
           // Adjust correct_answers to new indices
@@ -339,6 +689,16 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
             .map((originalIdx) => optionMapping[originalIdx])
             .filter((newIdx) => newIdx !== -1);
 
+          console.log(
+            "📝 [SAVE] Préparation de la question:",
+            question.question_text.substring(0, 50) + "..."
+          );
+          console.log(
+            "🖼️ [SAVE] Image de question URL:",
+            question.question_image_url
+          );
+          console.log("🔘 [SAVE] Images d'options:", question.option_images);
+
           return {
             quiz_id: quizData.id,
             question_text: question.question_text.trim(),
@@ -346,15 +706,90 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
             correct_answer: adjustedCorrectAnswers[0] || 0,
             correct_answers: adjustedCorrectAnswers,
             order_index: index,
+            question_image_url: question.question_image_url,
           };
         });
 
-      const { error: questionsError } = await supabase
+      const { data: insertedQuestions, error: questionsError } = await supabase
         .from("questions")
-        .insert(questionsToInsert);
+        .insert(questionsToInsert)
+        .select();
 
       if (questionsError) throw questionsError;
 
+      // Handle option images for all questions
+      console.log("🔘 [SAVE] Début de la sauvegarde des images d'options");
+      for (let i = 0; i < insertedQuestions.length; i++) {
+        const insertedQuestion = insertedQuestions[i];
+        const originalQuestion = updatedQuestions[i];
+
+        console.log(
+          "📝 [SAVE] Traitement des images pour la question:",
+          insertedQuestion.question_text.substring(0, 30) + "..."
+        );
+        console.log(
+          "🖼️ [SAVE] Images d'options de la question:",
+          originalQuestion.option_images
+        );
+
+        if (
+          originalQuestion.option_images &&
+          originalQuestion.option_images.some((img: string | null) => img)
+        ) {
+          console.log(
+            "✅ [SAVE] Images d'options trouvées, insertion en base..."
+          );
+
+          // Insert option images
+          const optionImagesData = originalQuestion.option_images
+            .map((imageUrl: string | null, index: number) => {
+              console.log(
+                `🔘 [SAVE] Option ${index}:`,
+                imageUrl ? "Image présente" : "Pas d'image"
+              );
+              if (imageUrl) {
+                console.log(`🔗 [SAVE] URL à sauvegarder:`, imageUrl);
+                console.log(
+                  `🔍 [SAVE] Type d'URL:`,
+                  imageUrl.startsWith("blob:")
+                    ? "BLOB (temporaire)"
+                    : "SUPABASE (permanente)"
+                );
+              }
+              return {
+                question_id: insertedQuestion.id,
+                option_index: index,
+                image_url: imageUrl,
+              };
+            })
+            .filter((item: any) => item.image_url);
+
+          console.log(
+            "📊 [SAVE] Nombre d'images d'options à insérer:",
+            optionImagesData.length
+          );
+
+          if (optionImagesData.length > 0) {
+            const { error: imagesError } = await supabase
+              .from("question_option_images")
+              .insert(optionImagesData);
+
+            if (imagesError) {
+              console.error(
+                "❌ [SAVE] Erreur lors de l'insertion des images d'options:",
+                imagesError
+              );
+              throw imagesError;
+            }
+
+            console.log("✅ [SAVE] Images d'options insérées avec succès!");
+          }
+        } else {
+          console.log("ℹ️ [SAVE] Aucune image d'option pour cette question");
+        }
+      }
+
+      console.log("🎉 [SAVE] Sauvegarde du quiz terminée avec succès!");
       router.push("/dashboard");
     } catch (error) {
       console.error("Error creating quiz:", error);
@@ -368,6 +803,15 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
 
   return (
     <>
+      {/* Hidden file input for image uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Quiz Info */}
         <Card className="bg-card border-border">
@@ -460,10 +904,27 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
                   />
                 </div>
 
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Image:</span>
+                  <ImageUpload
+                    value={question.question_image_url}
+                    onChange={(url) => updateQuestionImage(question.id, url)}
+                  />
+                </div>
+
                 <div className="space-y-3">
-                  <Label className="text-card-foreground">
-                    Réponses (au moins 2 requises) *
-                  </Label>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <Label className="text-card-foreground">
+                      Réponses (au moins 2 requises) *
+                    </Label>
+                    <Button
+                      type="button"
+                      onClick={() => addOption(question.id)}
+                      variant="outline"
+                      size="sm">
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
                   {question.options.map((option, optionIndex) => (
                     <div key={optionIndex} className="flex items-center gap-3">
                       <Checkbox
@@ -474,19 +935,62 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
                           toggleCorrectAnswer(question.id, optionIndex)
                         }
                       />
-                      <Input
-                        value={option}
-                        onChange={(e) =>
-                          updateOption(question.id, optionIndex, e.target.value)
-                        }
-                        placeholder={`Réponse ${optionIndex + 1}`}
-                        className="bg-input border-border text-foreground"
-                      />
-                      <span className="text-xs text-muted-foreground min-w-fit">
-                        {(question.correct_answers || []).includes(optionIndex)
-                          ? "Correcte"
-                          : ""}
-                      </span>
+                      {question.option_images?.[optionIndex] &&
+                      question.option_images[optionIndex]?.trim() !== "" ? (
+                        <div className="flex-1 flex items-center gap-2 p-2 border border-border rounded-md bg-input">
+                          <ImageZoom>
+                            <img
+                              src={question.option_images[optionIndex]}
+                              alt={`Option ${optionIndex + 1}`}
+                              className="w-12 h-12 object-cover rounded cursor-zoom-in"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </ImageZoom>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="w-8 h-8 p-0 rounded-md"
+                            onClick={() =>
+                              updateOptionImage(question.id, optionIndex, null)
+                            }>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <Input
+                          value={option}
+                          onChange={(e) =>
+                            updateOption(
+                              question.id,
+                              optionIndex,
+                              e.target.value
+                            )
+                          }
+                          placeholder={`Réponse ${optionIndex + 1}`}
+                          className="bg-input border-border text-foreground flex-1"
+                        />
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-8 h-8 p-0 border-border text-foreground hover:bg-accent bg-transparent rounded-md"
+                        onClick={() =>
+                          handleImageUpload(question.id, optionIndex)
+                        }>
+                        <ImageIcon className="h-4 w-4" />
+                      </Button>
+                      {question.options.length > 2 && (
+                        <Button
+                          type="button"
+                          onClick={() => removeOption(question.id, optionIndex)}
+                          variant="outline"
+                          size="sm"
+                          className="w-8 h-8 p-0 border-destructive text-destructive hover:bg-destructive/10 rounded-md">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                   <p className="text-xs text-muted-foreground">

@@ -36,7 +36,9 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
     const fetchQuiz = async () => {
       try {
         const supabase = createClient();
-        const { data, error } = await supabase
+
+        // First try to get the quiz with RLS
+        const { data: quizData, error: quizError } = await supabase
           .from("quizzes")
           .select(
             `
@@ -53,11 +55,21 @@ export default function QuizPreviewPage({ params }: QuizPreviewPageProps) {
           .eq("id", id)
           .single();
 
-        if (error) throw error;
-        setQuiz(data);
+        if (quizError) {
+          console.error("Quiz fetch error:", quizError);
+          // If RLS blocks access, try a different approach
+          // For now, we'll show the error
+          throw new Error(`Erreur d'accès au quiz: ${quizError.message}`);
+        }
+
+        if (!quizData) {
+          throw new Error("Quiz non trouvé");
+        }
+
+        setQuiz(quizData);
       } catch (error) {
         console.error("Error fetching quiz:", error);
-        setError("Quiz non trouvé");
+        setError(error instanceof Error ? error.message : "Quiz non trouvé");
       } finally {
         setIsLoading(false);
       }

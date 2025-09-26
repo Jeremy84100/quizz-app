@@ -21,13 +21,16 @@ export default async function QuizEditPage({ params }: QuizEditPageProps) {
   // Await params before using them
   const { id } = await params;
 
-  // Fetch quiz with questions
+  // Fetch quiz with questions and option images
   const { data: quiz, error: quizError } = await supabase
     .from("quizzes")
     .select(
       `
       *,
-      questions (*)
+      questions (
+        *,
+        question_option_images (*)
+      )
     `
     )
     .eq("id", id)
@@ -38,10 +41,49 @@ export default async function QuizEditPage({ params }: QuizEditPageProps) {
     redirect("/dashboard");
   }
 
-  // Sort questions by order_index
+  // Sort questions by order_index and transform option images
   const sortedQuestions =
-    quiz.questions?.sort((a: any, b: any) => a.order_index - b.order_index) ||
-    [];
+    quiz.questions
+      ?.sort((a: any, b: any) => a.order_index - b.order_index)
+      .map((question: any) => {
+        console.log("🔍 [DEBUG] Question:", question.question_text);
+        console.log(
+          "🔍 [DEBUG] Question image URL:",
+          question.question_image_url
+        );
+        console.log(
+          "🔍 [DEBUG] Option images from DB:",
+          question.question_option_images
+        );
+
+        // Transform option images from database format to component format
+        const optionImages: (string | null)[] = [];
+
+        if (
+          question.question_option_images &&
+          question.question_option_images.length > 0
+        ) {
+          // Initialize array with null values for all options
+          for (let i = 0; i < question.options.length; i++) {
+            optionImages[i] = null;
+          }
+
+          // Fill in the actual image URLs
+          question.question_option_images.forEach((img: any) => {
+            console.log("🔍 [DEBUG] Processing image:", img);
+            if (img.option_index < question.options.length) {
+              optionImages[img.option_index] = img.image_url;
+            }
+          });
+        }
+
+        console.log("🔍 [DEBUG] Final option_images array:", optionImages);
+
+        return {
+          ...question,
+          option_images: optionImages.length > 0 ? optionImages : undefined,
+        };
+      }) || [];
 
   return (
     <div className="min-h-screen bg-background">

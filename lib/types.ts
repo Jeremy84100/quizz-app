@@ -11,10 +11,20 @@ export interface Question {
   id: string
   quiz_id: string
   question_text: string
+  question_image_url?: string
   options: string[]
   correct_answer: number // Keep for backward compatibility
   correct_answers: number[] // New field for multiple correct answers
   order_index: number
+  created_at: string
+  option_images?: QuestionOptionImage[]
+}
+
+export interface QuestionOptionImage {
+  id: string
+  question_id: string
+  option_index: number
+  image_url: string
   created_at: string
 }
 

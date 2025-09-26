@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,35 +16,98 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus, Trash2, Save, ArrowLeft, Sparkles, Shuffle } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Save,
+  ArrowLeft,
+  Sparkles,
+  Shuffle,
+  Image as ImageIcon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { QuizWithQuestions, Question } from "@/lib/types";
+import { useImageUpload } from "@/hooks/use-image-upload";
+import { updateQuiz } from "@/app/actions/quiz-actions";
+import { ImageZoom } from "@/components/ui/image-zoom";
+import { ImageUpload } from "@/components/ui/image-upload";
 
 interface QuizEditFormProps {
   quiz: QuizWithQuestions;
   userId: string;
 }
 
-interface EditableQuestion extends Omit<Question, "correct_answers"> {
+interface EditableQuestion
+  extends Omit<
+    Question,
+    "correct_answers" | "option_images" | "question_image_url"
+  > {
   isNew?: boolean;
   toDelete?: boolean;
   correct_answers: number[];
+  question_image_url?: string | null;
+  option_images?: (string | null)[];
 }
 
 export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
   const [title, setTitle] = useState(quiz.title);
   const [description, setDescription] = useState(quiz.description || "");
   const [questions, setQuestions] = useState<EditableQuestion[]>(
-    quiz.questions.map((q) => ({
-      ...q,
-      correct_answers: q.correct_answers || [q.correct_answer],
-    }))
+    quiz.questions.map((q) => {
+      console.log("🔍 [DEBUG] Initializing question:", q.question_text);
+      console.log("🔍 [DEBUG] Question option_images:", q.option_images);
+
+      // Ensure option_images is in the correct format (string | null)[]
+      let optionImages: (string | null)[] = [null, null, null, null];
+      if (q.option_images && Array.isArray(q.option_images)) {
+        optionImages = q.option_images.map((img) =>
+          typeof img === "string" ? img : img?.image_url || null
+        );
+      }
+
+      return {
+        ...q,
+        correct_answers: q.correct_answers || [q.correct_answer],
+        question_image_url: q.question_image_url || null,
+        option_images: optionImages,
+      };
+    })
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentUpload, setCurrentUpload] = useState<{
+    questionId: string;
+    optionIndex?: number;
+    type: "question" | "option";
+  } | null>(null);
+
+  // Hook pour l'upload d'images
+  const { uploadImage, isUploading } = useImageUpload({
+    quizId: quiz.id,
+    onSuccess: (url) => {
+      if (currentUpload) {
+        if (currentUpload.type === "question") {
+          updateQuestionImage(currentUpload.questionId, url);
+        } else {
+          updateOptionImage(
+            currentUpload.questionId,
+            currentUpload.optionIndex!,
+            url
+          );
+        }
+        setCurrentUpload(null);
+      }
+    },
+    onError: (error) => {
+      console.error("Erreur d'upload:", error);
+      alert("Erreur lors de l'upload de l'image: " + error);
+      setCurrentUpload(null);
+    },
+  });
 
   const addQuestion = () => {
     const newQuestion: EditableQuestion = {
@@ -57,6 +120,8 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
       order_index: questions.length,
       created_at: new Date().toISOString(),
       isNew: true,
+      question_image_url: undefined,
+      option_images: [null, null, null, null],
     };
     setQuestions([...questions, newQuestion]);
   };
@@ -102,6 +167,128 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
             }
           : q
       )
+    );
+  };
+
+  const updateQuestionImage = (questionId: string, imageUrl: string | null) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === questionId ? { ...q, question_image_url: imageUrl } : q
+      )
+    );
+  };
+
+  const updateOptionImage = (
+    questionId: string,
+    optionIndex: number,
+    imageUrl: string | null
+  ) => {
+    console.log(`🔄 [UPDATE] Mise à jour de l'image d'option:`, {
+      questionId,
+      optionIndex,
+      imageUrl,
+      currentImages: questions.find((q) => q.id === questionId)?.option_images,
+    });
+
+    setQuestions(
+      questions.map((q) =>
+        q.id === questionId
+          ? {
+              ...q,
+              option_images:
+                q.option_images?.map((img, idx) =>
+                  idx === optionIndex ? imageUrl : img
+                ) || [],
+            }
+          : q
+      )
+    );
+
+    console.log(`✅ [UPDATE] Image d'option mise à jour dans l'état`);
+  };
+
+  const handleImageUpload = (questionId: string, optionIndex: number) => {
+    setCurrentUpload({ questionId, optionIndex, type: "option" });
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleQuestionImageUpload = (questionId: string) => {
+    setCurrentUpload({ questionId, type: "question" });
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileSelect = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentUpload) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      alert("Veuillez sélectionner un fichier image");
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("L'image doit faire moins de 5MB");
+      return;
+    }
+
+    // Upload directement via l'action serveur
+    await uploadImage(
+      file,
+      currentUpload.questionId,
+      currentUpload.type,
+      currentUpload.optionIndex
+    );
+  };
+
+  const addOption = (questionId: string) => {
+    setQuestions(
+      questions.map((q) =>
+        q.id === questionId
+          ? {
+              ...q,
+              options: [...q.options, ""],
+              option_images: [...(q.option_images || []), null],
+            }
+          : q
+      )
+    );
+  };
+
+  const removeOption = (questionId: string, optionIndex: number) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id === questionId) {
+          const newOptions = q.options.filter((_, idx) => idx !== optionIndex);
+          const newOptionImages =
+            q.option_images?.filter((_, idx) => idx !== optionIndex) || [];
+          // Adjust correct_answers indices
+          const newCorrectAnswers = q.correct_answers
+            .map((idx) => {
+              if (idx > optionIndex) return idx - 1;
+              if (idx === optionIndex) return -1; // Remove this answer
+              return idx;
+            })
+            .filter((idx) => idx !== -1);
+
+          return {
+            ...q,
+            options: newOptions,
+            option_images: newOptionImages,
+            correct_answers:
+              newCorrectAnswers.length > 0 ? newCorrectAnswers : [0],
+            correct_answer: newCorrectAnswers[0] || 0,
+          };
+        }
+        return q;
+      })
     );
   };
 
@@ -275,8 +462,11 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
         return false;
       }
 
-      const filledOptions = question.options.filter((opt) => opt.trim());
-      if (filledOptions.length < 2) {
+      // Check if options have either text or image
+      const validOptions = question.options.filter(
+        (opt, index) => opt.trim() || question.option_images?.[index]
+      );
+      if (validOptions.length < 2) {
         setError(`La question ${i + 1} doit avoir au moins 2 réponses`);
         return false;
       }
@@ -289,8 +479,10 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
         return false;
       }
 
-      const hasValidCorrectAnswers = correctAnswers.every((answerIndex) =>
-        question.options[answerIndex]?.trim()
+      const hasValidCorrectAnswers = correctAnswers.every(
+        (answerIndex) =>
+          question.options[answerIndex]?.trim() ||
+          question.option_images?.[answerIndex]
       );
       if (!hasValidCorrectAnswers) {
         setError(
@@ -314,79 +506,32 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
     }
 
     setIsLoading(true);
-    const supabase = createClient();
 
     try {
-      // Update quiz info
-      const { error: quizError } = await supabase
-        .from("quizzes")
-        .update({
+      // Utiliser l'action serveur pour la mise à jour
+      const result = await updateQuiz(
+        {
+          id: quiz.id,
           title: title.trim(),
-          description: description.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", quiz.id);
+          description: description.trim() || "",
+          questions: questions.map((q) => ({
+            id: q.id,
+            question_text: q.question_text,
+            options: q.options,
+            correct_answers: q.correct_answers,
+            question_image_url: q.question_image_url || undefined,
+            option_images: q.option_images,
+            isNew: q.isNew,
+            toDelete: q.toDelete,
+          })),
+        },
+        userId
+      );
 
-      if (quizError) throw quizError;
-
-      // Handle question deletions
-      const questionsToDelete = questions.filter((q) => q.toDelete && !q.isNew);
-      if (questionsToDelete.length > 0) {
-        const { error: deleteError } = await supabase
-          .from("questions")
-          .delete()
-          .in(
-            "id",
-            questionsToDelete.map((q) => q.id)
-          );
-
-        if (deleteError) throw deleteError;
+      // Si la mise à jour est réussie, rediriger vers le dashboard
+      if (result.success) {
+        router.push("/dashboard");
       }
-
-      // Handle question updates and inserts
-      const activeQuestions = questions.filter((q) => !q.toDelete);
-      const questionsToUpdate = activeQuestions.filter((q) => !q.isNew);
-      const questionsToInsert = activeQuestions.filter((q) => q.isNew);
-
-      // Update existing questions
-      for (const question of questionsToUpdate) {
-        const { error: updateError } = await supabase
-          .from("questions")
-          .update({
-            question_text: question.question_text.trim(),
-            options: question.options, // Keep all options, even empty ones
-            correct_answer: question.correct_answer,
-            correct_answers: question.correct_answers || [
-              question.correct_answer,
-            ],
-            order_index: activeQuestions.indexOf(question),
-          })
-          .eq("id", question.id);
-
-        if (updateError) throw updateError;
-      }
-
-      // Insert new questions
-      if (questionsToInsert.length > 0) {
-        const questionsData = questionsToInsert.map((question) => ({
-          quiz_id: quiz.id,
-          question_text: question.question_text.trim(),
-          options: question.options, // Keep all options, even empty ones
-          correct_answer: question.correct_answer,
-          correct_answers: question.correct_answers || [
-            question.correct_answer,
-          ],
-          order_index: activeQuestions.indexOf(question),
-        }));
-
-        const { error: insertError } = await supabase
-          .from("questions")
-          .insert(questionsData);
-
-        if (insertError) throw insertError;
-      }
-
-      router.push("/dashboard");
     } catch (error) {
       console.error("Error updating quiz:", error);
       setError(
@@ -401,6 +546,15 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
 
   return (
     <>
+      {/* Hidden file input for image uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        className="hidden"
+      />
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Quiz Info */}
         <Card className="bg-card border-border">
@@ -498,10 +652,31 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
                   />
                 </div>
 
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    Image de la question:
+                  </span>
+                  <ImageUpload
+                    value={question.question_image_url || undefined}
+                    onChange={(url) => updateQuestionImage(question.id, url)}
+                  />
+                </div>
+
                 <div className="space-y-3">
-                  <Label className="text-card-foreground">
-                    Réponses (au moins 2 requises) *
-                  </Label>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <Label className="text-card-foreground">
+                      Réponses (au moins 2 requises) *
+                    </Label>
+                    <Button
+                      type="button"
+                      onClick={() => addOption(question.id)}
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto border-border text-foreground hover:bg-accent bg-transparent">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Ajouter une option
+                    </Button>
+                  </div>
                   {question.options.map((option, optionIndex) => (
                     <div
                       key={optionIndex}
@@ -515,26 +690,90 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
                             toggleCorrectAnswer(question.id, optionIndex)
                           }
                         />
-                        <Input
-                          value={option}
-                          onChange={(e) =>
-                            updateOption(
-                              question.id,
-                              optionIndex,
-                              e.target.value
-                            )
-                          }
-                          placeholder={`Réponse ${optionIndex + 1}`}
-                          className="bg-input border-border text-foreground flex-1"
-                        />
+                        {question.option_images?.[optionIndex] &&
+                        question.option_images[optionIndex]?.trim() !== "" ? (
+                          <div className="flex-1 flex items-center gap-2 p-2 border border-border rounded-md bg-input">
+                            <ImageZoom>
+                              <img
+                                src={question.option_images[optionIndex]}
+                                alt={`Option ${optionIndex + 1}`}
+                                className="w-12 h-12 object-cover rounded cursor-zoom-in"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </ImageZoom>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="w-8 h-8 p-0 rounded-md"
+                              onClick={() =>
+                                updateOptionImage(
+                                  question.id,
+                                  optionIndex,
+                                  null
+                                )
+                              }>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <Input
+                            value={option}
+                            onChange={(e) =>
+                              updateOption(
+                                question.id,
+                                optionIndex,
+                                e.target.value
+                              )
+                            }
+                            placeholder={`Réponse ${optionIndex + 1}`}
+                            className="bg-input border-border text-foreground flex-1"
+                          />
+                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-8 h-8 p-0 border-border text-foreground hover:bg-accent bg-transparent rounded-md"
+                          onClick={() =>
+                            handleImageUpload(question.id, optionIndex)
+                          }>
+                          <ImageIcon className="h-4 w-4" />
+                        </Button>
+                        {question.options.length > 2 && (
+                          <Button
+                            type="button"
+                            onClick={() =>
+                              removeOption(question.id, optionIndex)
+                            }
+                            variant="outline"
+                            size="sm"
+                            className="border-destructive text-destructive hover:bg-destructive/10">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
-                      <span className="text-xs text-muted-foreground min-w-fit text-center sm:text-left">
-                        {(question.correct_answers || []).includes(optionIndex)
-                          ? "Correcte"
-                          : ""}
-                      </span>
+                      <span className="text-xs text-muted-foreground min-w-fit text-center sm:text-left"></span>
                     </div>
                   ))}
+
+                  {/* Add Answer Button */}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2 flex-1">
+                      <Label className="text-sm font-medium text-foreground">
+                        Ajouter une réponse
+                      </Label>
+                      <Button
+                        type="button"
+                        onClick={() => addOption(question.id)}
+                        variant="outline"
+                        size="sm"
+                        className="w-8 h-8 p-0 border-border text-foreground hover:bg-accent bg-transparent rounded-md">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
                   <p className="text-xs text-muted-foreground">
                     Cochez toutes les réponses correctes (au moins une doit être
                     cochée)

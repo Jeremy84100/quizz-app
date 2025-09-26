@@ -13,6 +13,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ImageZoom } from "@/components/ui/image-zoom";
 import {
   CheckCircle,
   XCircle,
@@ -31,6 +32,7 @@ interface QuizPlayerProps {
 
 interface ShuffledQuestion extends Question {
   shuffled_options: string[];
+  shuffled_option_images: (string | null)[];
   original_to_shuffled_map: number[];
 }
 
@@ -60,14 +62,27 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
 
     const shuffleQuestions = () => {
       const questionsWithShuffledOptions = quiz.questions.map((question) => {
-        const optionsWithIndex = question.options.map((option, index) => ({
-          option,
-          originalIndex: index,
-        }));
+        const optionsWithIndex = question.options.map((option, index) => {
+          // Handle both string[] and QuestionOptionImage[] formats
+          let imageUrl: string | null = null;
+          if (question.option_images && question.option_images[index]) {
+            const img = question.option_images[index];
+            imageUrl = typeof img === "string" ? img : img?.image_url || null;
+          }
+
+          return {
+            option,
+            image: imageUrl,
+            originalIndex: index,
+          };
+        });
         const shuffledOptionsWithIndex = shuffleArray(optionsWithIndex);
 
         const shuffled_options = shuffledOptionsWithIndex.map(
           (item) => item.option
+        );
+        const shuffled_option_images = shuffledOptionsWithIndex.map(
+          (item) => item.image
         );
         const original_to_shuffled_map = shuffledOptionsWithIndex.map(
           (item) => item.originalIndex
@@ -76,6 +91,7 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
         return {
           ...question,
           shuffled_options,
+          shuffled_option_images,
           original_to_shuffled_map,
         };
       });
@@ -163,6 +179,12 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
   };
 
   const saveQuizResult = async (correctAnswers: number) => {
+    // Only save results if user is authenticated (not anonymous)
+    if (userId === "anonymous") {
+      console.log("Quiz completed by anonymous user - results not saved");
+      return;
+    }
+
     setIsLoading(true);
     const supabase = createClient();
 
@@ -216,14 +238,27 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
     };
 
     const questionsWithShuffledOptions = quiz.questions.map((question) => {
-      const optionsWithIndex = question.options.map((option, index) => ({
-        option,
-        originalIndex: index,
-      }));
+      const optionsWithIndex = question.options.map((option, index) => {
+        // Handle both string[] and QuestionOptionImage[] formats
+        let imageUrl: string | null = null;
+        if (question.option_images && question.option_images[index]) {
+          const img = question.option_images[index];
+          imageUrl = typeof img === "string" ? img : img?.image_url || null;
+        }
+
+        return {
+          option,
+          image: imageUrl,
+          originalIndex: index,
+        };
+      });
       const shuffledOptionsWithIndex = shuffleArray(optionsWithIndex);
 
       const shuffled_options = shuffledOptionsWithIndex.map(
         (item) => item.option
+      );
+      const shuffled_option_images = shuffledOptionsWithIndex.map(
+        (item) => item.image
       );
       const original_to_shuffled_map = shuffledOptionsWithIndex.map(
         (item) => item.originalIndex
@@ -232,6 +267,7 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
       return {
         ...question,
         shuffled_options,
+        shuffled_option_images,
         original_to_shuffled_map,
       };
     });
@@ -351,12 +387,16 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
                 <RotateCcw className="h-4 w-4 mr-2" />
                 Refaire le quiz
               </Button>
-              <Link href="/dashboard" className="w-full sm:w-auto">
+              <Link
+                href={userId === "anonymous" ? "/" : "/dashboard"}
+                className="w-full sm:w-auto">
                 <Button
                   variant="outline"
                   className="w-full sm:w-auto border-border text-foreground hover:bg-accent bg-transparent">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Retour au tableau de bord
+                  {userId === "anonymous"
+                    ? "Retour à l'accueil"
+                    : "Retour au tableau de bord"}
                 </Button>
               </Link>
             </div>
@@ -371,7 +411,7 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 mb-4">
           <div className="flex items-center justify-between sm:justify-start gap-3">
-            <Link href="/dashboard">
+            <Link href={userId === "anonymous" ? "/" : "/dashboard"}>
               <Button
                 variant="outline"
                 size="sm"
@@ -410,13 +450,31 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
           <CardTitle className="text-xl text-card-foreground">
             {currentQuestion.question_text}
           </CardTitle>
+          {currentQuestion.question_image_url && (
+            <div className="mt-4 flex justify-center">
+              <ImageZoom>
+                <img
+                  src={currentQuestion.question_image_url}
+                  alt="Image de la question"
+                  className="max-w-full max-h-64 object-contain rounded border border-border cursor-zoom-in"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </ImageZoom>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
             {currentQuestion.shuffled_options
-              .map((option, index) => ({ option, originalIndex: index }))
-              .filter(({ option }) => option && option.trim() !== "")
-              .map(({ option, originalIndex }, displayIndex) => {
+              .map((option, index) => ({
+                option,
+                image: currentQuestion.shuffled_option_images?.[index] || null,
+                originalIndex: index,
+              }))
+              .filter(
+                ({ option, image }) => (option && option.trim() !== "") || image
+              )
+              .map(({ option, image, originalIndex }, displayIndex) => {
                 const isSelected = (
                   selectedAnswers[currentQuestionIndex] || []
                 ).includes(originalIndex);
@@ -449,7 +507,20 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
                           </svg>
                         )}
                       </div>
-                      <span>{option}</span>
+                      {image ? (
+                        <div className="flex-1 flex justify-center">
+                          <ImageZoom>
+                            <img
+                              src={image}
+                              alt={`Option ${displayIndex + 1}`}
+                              className="w-32 h-32 object-cover rounded border border-border cursor-zoom-in"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </ImageZoom>
+                        </div>
+                      ) : (
+                        <span className="flex-1">{option}</span>
+                      )}
                     </div>
                   </div>
                 );
