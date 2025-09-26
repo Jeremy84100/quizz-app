@@ -22,7 +22,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
-import type { QuizResultWithQuiz } from "@/lib/types";
+import type { QuizResultWithQuiz, Question } from "@/lib/types";
 
 interface QuizResultDetailProps {
   result: QuizResultWithQuiz;
@@ -60,7 +60,7 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
   let incorrectAnswers = 0;
   questions.forEach((question) => {
     const userAnswer = answers[question.id];
-    if (userAnswer !== undefined && userAnswer !== question.correct_answer) {
+    if (userAnswer !== undefined && !isCorrect(question, userAnswer)) {
       incorrectAnswers++;
     }
   });
@@ -72,7 +72,7 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
   const filteredQuestions = showOnlyIncorrect
     ? questions.filter((question) => {
         const userAnswer = answers[question.id];
-        return userAnswer !== question.correct_answer;
+        return userAnswer !== undefined && !isCorrect(question, userAnswer);
       })
     : questions;
 
@@ -90,8 +90,27 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
     return question.options[answerIndex] || "Réponse non trouvée";
   };
 
-  const isCorrect = (question: Question, userAnswer: number) => {
-    return userAnswer === question.correct_answer;
+  const isCorrect = (question: Question, userAnswer: number | number[]) => {
+    // Handle both single answer (number) and multiple answers (number[])
+    if (Array.isArray(userAnswer)) {
+      const correctAnswers = question.correct_answers || [
+        question.correct_answer,
+      ];
+      // Check if all selected answers are correct and all correct answers are selected
+      const allSelectedAreCorrect = userAnswer.every((idx: number) =>
+        correctAnswers.includes(idx)
+      );
+      const allCorrectAreSelected = correctAnswers.every((idx: number) =>
+        userAnswer.includes(idx)
+      );
+      return allSelectedAreCorrect && allCorrectAreSelected;
+    } else {
+      // Single answer - check if it's in the correct answers
+      const correctAnswers = question.correct_answers || [
+        question.correct_answer,
+      ];
+      return correctAnswers.includes(userAnswer);
+    }
   };
 
   return (
@@ -325,7 +344,7 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
                                   : "text-red-800"
                               }`}>
                               {isQuestionCorrect
-                                ? "Votre réponse (correcte)"
+                                ? "Vos réponses (correctes)"
                                 : "Incorrect"}
                             </p>
                             <p
@@ -334,7 +353,11 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
                                   ? "text-green-700"
                                   : "text-red-700"
                               }`}>
-                              {question.options[userAnswer]}
+                              {Array.isArray(userAnswer)
+                                ? userAnswer
+                                    .map((idx) => question.options[idx])
+                                    .join(", ")
+                                : question.options[userAnswer]}
                             </p>
                           </div>
                         </div>
@@ -361,9 +384,14 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
                     {/* Answer Options */}
                     <div className="space-y-2">
                       {question.options.map((option, optionIndex) => {
-                        const isUserAnswer = userAnswer === optionIndex;
+                        const isUserAnswer = Array.isArray(userAnswer)
+                          ? userAnswer.includes(optionIndex)
+                          : userAnswer === optionIndex;
+                        const correctAnswers = question.correct_answers || [
+                          question.correct_answer,
+                        ];
                         const isCorrectAnswer =
-                          question.correct_answer === optionIndex;
+                          correctAnswers.includes(optionIndex);
 
                         let badgeVariant:
                           | "default"
@@ -413,10 +441,16 @@ export function QuizResultDetail({ result }: QuizResultDetailProps) {
                           <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
                           <div>
                             <p className="text-sm font-medium text-red-800 mb-1">
-                              Réponse correcte :
+                              Réponses correctes :
                             </p>
                             <p className="text-sm text-red-700">
-                              {getAnswerText(question, question.correct_answer)}
+                              {(
+                                question.correct_answers || [
+                                  question.correct_answer,
+                                ]
+                              )
+                                .map((idx) => question.options[idx])
+                                .join(", ")}
                             </p>
                           </div>
                         </div>

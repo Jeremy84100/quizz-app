@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   CheckCircle,
   XCircle,
@@ -28,7 +29,7 @@ interface QuizPlayerProps {
   userId: string;
 }
 
-interface ShuffledQuestion extends Omit<Question, "options"> {
+interface ShuffledQuestion extends Question {
   shuffled_options: string[];
   original_to_shuffled_map: number[];
 }
@@ -36,7 +37,7 @@ interface ShuffledQuestion extends Omit<Question, "options"> {
 export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<
-    Record<number, number>
+    Record<number, number[]>
   >({});
   const [showResults, setShowResults] = useState(false);
   const [score, setScore] = useState(0);
@@ -92,9 +93,21 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
     ((currentQuestionIndex + 1) / shuffledQuestions.length) * 100;
 
   const handleAnswerSelect = (answerIndex: number) => {
+    const currentAnswers = selectedAnswers[currentQuestionIndex] || [];
+    const isSelected = currentAnswers.includes(answerIndex);
+
+    let newAnswers;
+    if (isSelected) {
+      // Remove from selection
+      newAnswers = currentAnswers.filter((idx) => idx !== answerIndex);
+    } else {
+      // Add to selection
+      newAnswers = [...currentAnswers, answerIndex];
+    }
+
     setSelectedAnswers({
       ...selectedAnswers,
-      [currentQuestionIndex]: answerIndex,
+      [currentQuestionIndex]: newAnswers,
     });
   };
 
@@ -116,12 +129,27 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
     let correctAnswers = 0;
 
     shuffledQuestions.forEach((question, index) => {
-      const selectedAnswerIndex = selectedAnswers[index];
-      if (selectedAnswerIndex !== undefined) {
-        // Map back to original index to check if correct
-        const originalAnswerIndex =
-          question.original_to_shuffled_map[selectedAnswerIndex];
-        if (originalAnswerIndex === question.correct_answer) {
+      const selectedAnswerIndices = selectedAnswers[index] || [];
+      if (selectedAnswerIndices.length > 0) {
+        // Map back to original indices to check if correct
+        const originalAnswerIndices = selectedAnswerIndices.map(
+          (shuffledIndex) => question.original_to_shuffled_map[shuffledIndex]
+        );
+
+        // Get correct answers for this question
+        const correctAnswersForQuestion = question.correct_answers || [
+          question.correct_answer,
+        ];
+
+        // Check if all selected answers are correct and all correct answers are selected
+        const allSelectedAreCorrect = originalAnswerIndices.every((idx) =>
+          correctAnswersForQuestion.includes(idx)
+        );
+        const allCorrectAreSelected = correctAnswersForQuestion.every((idx) =>
+          originalAnswerIndices.includes(idx)
+        );
+
+        if (allSelectedAreCorrect && allCorrectAreSelected) {
           correctAnswers++;
         }
       }
@@ -140,13 +168,15 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
 
     try {
       // Convert selectedAnswers from shuffled index to question ID mapping
-      const answersByQuestionId: Record<string, number> = {};
+      const answersByQuestionId: Record<string, number[]> = {};
       shuffledQuestions.forEach((question, index) => {
-        if (selectedAnswers[index] !== undefined) {
-          // Map the shuffled answer index back to the original answer index
-          const originalAnswerIndex =
-            question.original_to_shuffled_map[selectedAnswers[index]];
-          answersByQuestionId[question.id] = originalAnswerIndex;
+        const selectedAnswerIndices = selectedAnswers[index] || [];
+        if (selectedAnswerIndices.length > 0) {
+          // Map the shuffled answer indices back to the original answer indices
+          const originalAnswerIndices = selectedAnswerIndices.map(
+            (shuffledIndex) => question.original_to_shuffled_map[shuffledIndex]
+          );
+          answersByQuestionId[question.id] = originalAnswerIndices;
         }
       });
 
@@ -254,11 +284,26 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
                 Détail des réponses
               </h3>
               {shuffledQuestions.map((question, index) => {
-                const selectedAnswerIndex = selectedAnswers[index];
+                const selectedAnswerIndices = selectedAnswers[index] || [];
+                const correctAnswersForQuestion = question.correct_answers || [
+                  question.correct_answer,
+                ];
+
+                // Map back to original indices
+                const originalSelectedIndices = selectedAnswerIndices.map(
+                  (shuffledIndex) =>
+                    question.original_to_shuffled_map[shuffledIndex]
+                );
+
+                // Check if all selected answers are correct and all correct answers are selected
+                const allSelectedAreCorrect = originalSelectedIndices.every(
+                  (idx) => correctAnswersForQuestion.includes(idx)
+                );
+                const allCorrectAreSelected = correctAnswersForQuestion.every(
+                  (idx) => originalSelectedIndices.includes(idx)
+                );
                 const isCorrect =
-                  selectedAnswerIndex !== undefined &&
-                  question.original_to_shuffled_map[selectedAnswerIndex] ===
-                    question.correct_answer;
+                  allSelectedAreCorrect && allCorrectAreSelected;
 
                 return (
                   <div
@@ -274,15 +319,23 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
                         {question.question_text}
                       </p>
                       <div className="space-y-1 text-sm">
-                        {selectedAnswerIndex !== undefined && (
+                        {selectedAnswerIndices.length > 0 && (
                           <p className="text-muted-foreground">
-                            Votre réponse:{" "}
-                            {question.shuffled_options[selectedAnswerIndex]}
+                            Vos réponses:{" "}
+                            {selectedAnswerIndices
+                              .map((idx) => question.shuffled_options[idx])
+                              .filter(
+                                (option) => option && option.trim() !== ""
+                              )
+                              .join(", ")}
                           </p>
                         )}
                         <p className="text-green-600">
-                          Bonne réponse:{" "}
-                          {question.options[question.correct_answer]}
+                          Bonnes réponses:{" "}
+                          {correctAnswersForQuestion
+                            .map((idx) => question.options[idx])
+                            .filter((option) => option && option.trim() !== "")
+                            .join(", ")}
                         </p>
                       </div>
                     </div>
@@ -360,30 +413,33 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3">
-            {currentQuestion.shuffled_options.map((option, index) => (
-              <button
-                key={index}
-                onClick={() => handleAnswerSelect(index)}
-                className={`w-full p-4 text-left rounded-lg border transition-colors ${
-                  selectedAnswers[currentQuestionIndex] === index
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-background hover:bg-accent text-foreground"
-                }`}>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                      selectedAnswers[currentQuestionIndex] === index
-                        ? "border-primary bg-primary"
-                        : "border-muted-foreground"
+            {currentQuestion.shuffled_options
+              .map((option, index) => ({ option, originalIndex: index }))
+              .filter(({ option }) => option && option.trim() !== "")
+              .map(({ option, originalIndex }, displayIndex) => {
+                const isSelected = (
+                  selectedAnswers[currentQuestionIndex] || []
+                ).includes(originalIndex);
+                return (
+                  <button
+                    key={originalIndex}
+                    onClick={() => handleAnswerSelect(originalIndex)}
+                    className={`w-full p-4 text-left rounded-lg border transition-colors ${
+                      isSelected
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background hover:bg-accent text-foreground"
                     }`}>
-                    {selectedAnswers[currentQuestionIndex] === index && (
-                      <div className="w-2 h-2 rounded-full bg-primary-foreground" />
-                    )}
-                  </div>
-                  <span>{option}</span>
-                </div>
-              </button>
-            ))}
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={isSelected}
+                        disabled
+                        className="pointer-events-none"
+                      />
+                      <span>{option}</span>
+                    </div>
+                  </button>
+                );
+              })}
           </div>
 
           <div className="flex items-center justify-between pt-6">
@@ -396,7 +452,9 @@ export function QuizPlayer({ quiz, userId }: QuizPlayerProps) {
             </Button>
             <Button
               onClick={handleNext}
-              disabled={selectedAnswers[currentQuestionIndex] === undefined}
+              disabled={
+                (selectedAnswers[currentQuestionIndex] || []).length === 0
+              }
               className="bg-primary text-primary-foreground hover:bg-primary/90">
               {currentQuestionIndex === shuffledQuestions.length - 1
                 ? "Terminer"

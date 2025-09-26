@@ -31,11 +31,16 @@ Question: "${questionData.question}"
 Bonne réponse: "${questionData.correctAnswer}"
 
 Règles importantes:
-1. Les fausses réponses doivent être plausibles et similaires à la vraie réponse
+1. Les fausses réponses doivent être plausibles mais INCORRECTES
 2. Elles doivent être dans le même domaine/thème que la vraie réponse
-3. Elles ne doivent pas être trop évidentes comme fausses
-4. Utilise un style et un niveau de détail similaire à la vraie réponse
-5. Évite les réponses complètement absurdes ou hors sujet
+3. Elles ne doivent pas être des synonymes ou des variantes de la bonne réponse
+4. Pour les questions de vocabulaire anglais, utilise des mots différents mais du même niveau
+5. Pour les questions de définition, utilise des définitions d'autres mots similaires
+6. Évite les réponses complètement absurdes ou hors sujet
+7. Les fausses réponses doivent sembler correctes à quelqu'un qui ne connaît pas la réponse
+
+IMPORTANT: Ne génère PAS de synonymes, de traductions alternatives, ou de variantes de la bonne réponse. 
+Génère des réponses complètement différentes mais plausibles.
 
 Réponds UNIQUEMENT avec un JSON valide contenant un tableau "distractors" avec les ${count} fausses réponses.
 Format: {"distractors": ["réponse1", "réponse2", "réponse3"]}
@@ -46,7 +51,7 @@ Format: {"distractors": ["réponse1", "réponse2", "réponse3"]}
       messages: [
         {
           role: "system",
-          content: "Tu es un expert en création de quiz. Tu génères des fausses réponses plausibles et réalistes pour des questions de quiz."
+          content: "Tu es un expert en création de quiz. Tu génères des fausses réponses plausibles et réalistes pour des questions de quiz. IMPORTANT: Ne génère jamais de synonymes ou de variantes de la bonne réponse. Génère des réponses complètement différentes mais du même niveau et domaine."
         },
         {
           role: "user",
@@ -85,12 +90,13 @@ Format: {"distractors": ["réponse1", "réponse2", "réponse3"]}
  * Génère des distracteurs de fallback si OpenAI échoue
  */
 function generateFallbackDistractors(correctAnswer: string, count: number): string[] {
+  // Génère des réponses différentes selon le type de question
   const fallbacks = [
-    `Autre ${correctAnswer.toLowerCase()}`,
-    `Variante de ${correctAnswer}`,
-    `Alternative à ${correctAnswer}`,
-    `Similaire à ${correctAnswer}`,
-    `Proche de ${correctAnswer}`
+    "Réponse incorrecte 1",
+    "Réponse incorrecte 2", 
+    "Réponse incorrecte 3",
+    "Autre option",
+    "Choix alternatif"
   ]
   
   return fallbacks.slice(0, count)

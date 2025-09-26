@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Save, ArrowLeft, Sparkles, Shuffle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -23,7 +24,8 @@ interface Question {
   id: string;
   question_text: string;
   options: string[];
-  correct_answer: number;
+  correct_answer: number; // Keep for backward compatibility
+  correct_answers: number[]; // New field for multiple correct answers
 }
 
 interface QuizCreationFormProps {
@@ -39,6 +41,7 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
       question_text: "",
       options: ["", "", "", ""],
       correct_answer: 0,
+      correct_answers: [0],
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,6 +57,7 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
         question_text: "",
         options: ["", "", "", ""],
         correct_answer: 0,
+        correct_answers: [0],
       },
     ]);
   };
@@ -90,6 +94,41 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
             }
           : q
       )
+    );
+  };
+
+  const toggleCorrectAnswer = (questionId: string, optionIndex: number) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id === questionId) {
+          const currentCorrectAnswers = q.correct_answers || [];
+          const isCurrentlyCorrect =
+            currentCorrectAnswers.includes(optionIndex);
+
+          let newCorrectAnswers;
+          if (isCurrentlyCorrect) {
+            // Remove from correct answers
+            newCorrectAnswers = currentCorrectAnswers.filter(
+              (idx) => idx !== optionIndex
+            );
+          } else {
+            // Add to correct answers
+            newCorrectAnswers = [...currentCorrectAnswers, optionIndex];
+          }
+
+          // Ensure at least one correct answer
+          if (newCorrectAnswers.length === 0) {
+            newCorrectAnswers = [optionIndex];
+          }
+
+          return {
+            ...q,
+            correct_answers: newCorrectAnswers,
+            correct_answer: newCorrectAnswers[0], // Keep first one for backward compatibility
+          };
+        }
+        return q;
+      })
     );
   };
 
@@ -228,9 +267,22 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
         return false;
       }
 
-      if (!question.options[question.correct_answer]?.trim()) {
+      const correctAnswers = question.correct_answers || [];
+      if (correctAnswers.length === 0) {
         setError(
-          `La réponse correcte de la question ${i + 1} ne peut pas être vide`
+          `La question ${i + 1} doit avoir au moins une réponse correcte`
+        );
+        return false;
+      }
+
+      const hasValidCorrectAnswers = correctAnswers.every((answerIndex) =>
+        question.options[answerIndex]?.trim()
+      );
+      if (!hasValidCorrectAnswers) {
+        setError(
+          `Toutes les réponses correctes de la question ${
+            i + 1
+          } doivent être remplies`
         );
         return false;
       }
@@ -271,13 +323,31 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
             q.question_text.trim() &&
             q.options.filter((opt) => opt.trim()).length >= 2
         )
-        .map((question, index) => ({
-          quiz_id: quizData.id,
-          question_text: question.question_text.trim(),
-          options: question.options.filter((opt) => opt.trim()),
-          correct_answer: question.correct_answer,
-          order_index: index,
-        }));
+        .map((question, index) => {
+          // Filter out empty options and adjust correct_answers indices
+          const nonEmptyOptions = question.options.filter(
+            (opt) => opt && opt.trim() !== ""
+          );
+          const optionMapping = question.options.map((opt, idx) =>
+            opt && opt.trim() !== "" ? nonEmptyOptions.indexOf(opt) : -1
+          );
+
+          // Adjust correct_answers to new indices
+          const adjustedCorrectAnswers = (
+            question.correct_answers || [question.correct_answer]
+          )
+            .map((originalIdx) => optionMapping[originalIdx])
+            .filter((newIdx) => newIdx !== -1);
+
+          return {
+            quiz_id: quizData.id,
+            question_text: question.question_text.trim(),
+            options: nonEmptyOptions, // Only save non-empty options
+            correct_answer: adjustedCorrectAnswers[0] || 0,
+            correct_answers: adjustedCorrectAnswers,
+            order_index: index,
+          };
+        });
 
       const { error: questionsError } = await supabase
         .from("questions")
@@ -396,18 +466,13 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
                   </Label>
                   {question.options.map((option, optionIndex) => (
                     <div key={optionIndex} className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name={`correct-${question.id}`}
-                        checked={question.correct_answer === optionIndex}
-                        onChange={() =>
-                          updateQuestion(
-                            question.id,
-                            "correct_answer",
-                            optionIndex
-                          )
+                      <Checkbox
+                        checked={(question.correct_answers || []).includes(
+                          optionIndex
+                        )}
+                        onCheckedChange={() =>
+                          toggleCorrectAnswer(question.id, optionIndex)
                         }
-                        className="text-primary focus:ring-primary"
                       />
                       <Input
                         value={option}
@@ -418,15 +483,15 @@ export function QuizCreationForm({ userId }: QuizCreationFormProps) {
                         className="bg-input border-border text-foreground"
                       />
                       <span className="text-xs text-muted-foreground min-w-fit">
-                        {question.correct_answer === optionIndex
+                        {(question.correct_answers || []).includes(optionIndex)
                           ? "Correcte"
                           : ""}
                       </span>
                     </div>
                   ))}
                   <p className="text-xs text-muted-foreground">
-                    Sélectionnez la réponse correcte en cliquant sur le bouton
-                    radio correspondant
+                    Cochez toutes les réponses correctes (au moins une doit être
+                    cochée)
                   </p>
                 </div>
 

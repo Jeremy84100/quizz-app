@@ -12,7 +12,8 @@ export interface Question {
   quiz_id: string
   question_text: string
   options: string[]
-  correct_answer: number
+  correct_answer: number // Keep for backward compatibility
+  correct_answers: number[] // New field for multiple correct answers
   order_index: number
   created_at: string
 }

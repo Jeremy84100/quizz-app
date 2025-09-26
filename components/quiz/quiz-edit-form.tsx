@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Trash2, Save, ArrowLeft, Sparkles, Shuffle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -25,16 +26,20 @@ interface QuizEditFormProps {
   userId: string;
 }
 
-interface EditableQuestion extends Question {
+interface EditableQuestion extends Omit<Question, "correct_answers"> {
   isNew?: boolean;
   toDelete?: boolean;
+  correct_answers: number[];
 }
 
 export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
   const [title, setTitle] = useState(quiz.title);
   const [description, setDescription] = useState(quiz.description || "");
   const [questions, setQuestions] = useState<EditableQuestion[]>(
-    quiz.questions
+    quiz.questions.map((q) => ({
+      ...q,
+      correct_answers: q.correct_answers || [q.correct_answer],
+    }))
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -48,6 +53,7 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
       question_text: "",
       options: ["", "", "", ""],
       correct_answer: 0,
+      correct_answers: [0],
       order_index: questions.length,
       created_at: new Date().toISOString(),
       isNew: true,
@@ -96,6 +102,41 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
             }
           : q
       )
+    );
+  };
+
+  const toggleCorrectAnswer = (questionId: string, optionIndex: number) => {
+    setQuestions(
+      questions.map((q) => {
+        if (q.id === questionId) {
+          const currentCorrectAnswers = q.correct_answers || [];
+          const isCurrentlyCorrect =
+            currentCorrectAnswers.includes(optionIndex);
+
+          let newCorrectAnswers;
+          if (isCurrentlyCorrect) {
+            // Remove from correct answers
+            newCorrectAnswers = currentCorrectAnswers.filter(
+              (idx) => idx !== optionIndex
+            );
+          } else {
+            // Add to correct answers
+            newCorrectAnswers = [...currentCorrectAnswers, optionIndex];
+          }
+
+          // Ensure at least one correct answer
+          if (newCorrectAnswers.length === 0) {
+            newCorrectAnswers = [optionIndex];
+          }
+
+          return {
+            ...q,
+            correct_answers: newCorrectAnswers,
+            correct_answer: newCorrectAnswers[0], // Keep first one for backward compatibility
+          };
+        }
+        return q;
+      })
     );
   };
 
@@ -240,9 +281,22 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
         return false;
       }
 
-      if (!question.options[question.correct_answer]?.trim()) {
+      const correctAnswers = question.correct_answers || [];
+      if (correctAnswers.length === 0) {
         setError(
-          `La réponse correcte de la question ${i + 1} ne peut pas être vide`
+          `La question ${i + 1} doit avoir au moins une réponse correcte`
+        );
+        return false;
+      }
+
+      const hasValidCorrectAnswers = correctAnswers.every((answerIndex) =>
+        question.options[answerIndex]?.trim()
+      );
+      if (!hasValidCorrectAnswers) {
+        setError(
+          `Toutes les réponses correctes de la question ${
+            i + 1
+          } doivent être remplies`
         );
         return false;
       }
@@ -300,8 +354,11 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
           .from("questions")
           .update({
             question_text: question.question_text.trim(),
-            options: question.options.filter((opt) => opt.trim()),
+            options: question.options, // Keep all options, even empty ones
             correct_answer: question.correct_answer,
+            correct_answers: question.correct_answers || [
+              question.correct_answer,
+            ],
             order_index: activeQuestions.indexOf(question),
           })
           .eq("id", question.id);
@@ -314,8 +371,11 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
         const questionsData = questionsToInsert.map((question) => ({
           quiz_id: quiz.id,
           question_text: question.question_text.trim(),
-          options: question.options.filter((opt) => opt.trim()),
+          options: question.options, // Keep all options, even empty ones
           correct_answer: question.correct_answer,
+          correct_answers: question.correct_answers || [
+            question.correct_answer,
+          ],
           order_index: activeQuestions.indexOf(question),
         }));
 
@@ -447,18 +507,13 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
                       key={optionIndex}
                       className="flex flex-col sm:flex-row sm:items-center gap-3">
                       <div className="flex items-center gap-3 flex-1">
-                        <input
-                          type="radio"
-                          name={`correct-${question.id}`}
-                          checked={question.correct_answer === optionIndex}
-                          onChange={() =>
-                            updateQuestion(
-                              question.id,
-                              "correct_answer",
-                              optionIndex
-                            )
+                        <Checkbox
+                          checked={(question.correct_answers || []).includes(
+                            optionIndex
+                          )}
+                          onCheckedChange={() =>
+                            toggleCorrectAnswer(question.id, optionIndex)
                           }
-                          className="text-primary focus:ring-primary flex-shrink-0"
                         />
                         <Input
                           value={option}
@@ -474,15 +529,15 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
                         />
                       </div>
                       <span className="text-xs text-muted-foreground min-w-fit text-center sm:text-left">
-                        {question.correct_answer === optionIndex
+                        {(question.correct_answers || []).includes(optionIndex)
                           ? "Correcte"
                           : ""}
                       </span>
                     </div>
                   ))}
                   <p className="text-xs text-muted-foreground">
-                    Sélectionnez la réponse correcte en cliquant sur le bouton
-                    radio correspondant
+                    Cochez toutes les réponses correctes (au moins une doit être
+                    cochée)
                   </p>
                 </div>
 

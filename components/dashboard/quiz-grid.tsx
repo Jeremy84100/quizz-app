@@ -21,6 +21,7 @@ import {
   Trophy,
   Users,
   Target,
+  Share2,
 } from "lucide-react";
 import Link from "next/link";
 import type { Quiz } from "@/lib/types";
@@ -42,6 +43,7 @@ interface QuizWithStats extends Quiz {
 export function QuizGrid({ userId }: QuizGridProps) {
   const [quizzes, setQuizzes] = useState<QuizWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sharingQuiz, setSharingQuiz] = useState<string | null>(null);
 
   useEffect(() => {
     fetchQuizzes();
@@ -133,6 +135,22 @@ export function QuizGrid({ userId }: QuizGridProps) {
     }
   };
 
+  const handleShareQuiz = async (quizId: string) => {
+    setSharingQuiz(quizId);
+    try {
+      const quizUrl = `${window.location.origin}/quiz/preview/${quizId}`;
+      await navigator.clipboard.writeText(quizUrl);
+
+      // Optionnel : afficher une notification de succès
+      alert("Lien du quiz copié dans le presse-papiers !");
+    } catch (error) {
+      console.error("Error sharing quiz:", error);
+      alert("Erreur lors du partage");
+    } finally {
+      setSharingQuiz(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -181,14 +199,14 @@ export function QuizGrid({ userId }: QuizGridProps) {
           key={quiz.id}
           className="bg-card border-border hover:border-primary/50 transition-colors">
           <CardHeader>
-              <CardTitle className="text-card-foreground text-base sm:text-lg truncate">
-                {quiz.title}
-              </CardTitle>
-              {quiz.description && (
-                <CardDescription className="text-muted-foreground text-sm line-clamp-2">
-                  {quiz.description}
-                </CardDescription>
-              )}
+            <CardTitle className="text-card-foreground text-base sm:text-lg truncate">
+              {quiz.title}
+            </CardTitle>
+            {quiz.description && (
+              <CardDescription className="text-muted-foreground text-sm line-clamp-2">
+                {quiz.description}
+              </CardDescription>
+            )}
           </CardHeader>
           <CardContent>
             {/* Stats Section */}
@@ -262,7 +280,7 @@ export function QuizGrid({ userId }: QuizGridProps) {
             )}
 
             <div className="flex items-center gap-2 mb-3">
-              <Link href={`/quiz/play/${quiz.id}`} className="flex-1">
+              <Link href={`/quiz/preview/${quiz.id}`} className="flex-1">
                 <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90 text-sm">
                   <Play className="h-4 w-4 mr-2" />
                   Jouer
@@ -279,6 +297,16 @@ export function QuizGrid({ userId }: QuizGridProps) {
                   <span className="sm:hidden">Edit</span>
                 </Button>
               </Link>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleShareQuiz(quiz.id)}
+                disabled={sharingQuiz === quiz.id}
+                title="Partager ce quiz"
+                className="border-border text-foreground hover:bg-accent bg-transparent">
+                <Share2 className="h-4 w-4 mr-1" />
+                <span className="hidden sm:inline text-xs">Partager</span>
+              </Button>
               <Link href={`/quiz/results/${quiz.id}`}>
                 <Button
                   variant="outline"
