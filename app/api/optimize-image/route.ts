@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { optimizeImageServer, createThumbnailServer, getImageMetadata } from '@/lib/server-image-optimizer';
 
+// Configuration pour les gros fichiers
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20mb',
+    },
+  },
+  maxDuration: 60, // 60 secondes pour les gros fichiers
+};
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -18,6 +28,22 @@ export async function POST(request: NextRequest) {
     if (!file.type.startsWith('image/')) {
       return NextResponse.json(
         { error: 'Le fichier doit être une image' },
+        { status: 400 }
+      );
+    }
+
+    // Valider la taille du fichier (20MB max)
+    if (file.size > 20 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'Le fichier est trop volumineux (max 20MB)' },
+        { status: 413 }
+      );
+    }
+
+    // Validation supplémentaire pour les images corrompues
+    if (file.size === 0) {
+      return NextResponse.json(
+        { error: 'Le fichier est vide' },
         { status: 400 }
       );
     }
@@ -80,12 +106,40 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
+    console.error('Erreur lors de l\'optimisation de l\'image:', error);
+    
+    // Gestion spécifique des erreurs
+    let errorMessage = 'Erreur lors de l\'optimisation de l\'image';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Input file is missing')) {
+        errorMessage = 'Fichier image corrompu ou illisible';
+        statusCode = 400;
+      } else if (error.message.includes('unsupported image format')) {
+        errorMessage = 'Format d\'image non supporté';
+        statusCode = 400;
+      } else if (error.message.includes('VipsJpeg') || error.message.includes('Invalid SOS parameters')) {
+        errorMessage = 'Image JPEG corrompue. Veuillez utiliser une autre image ou la re-sauvegarder.';
+        statusCode = 400;
+      } else if (error.message.includes('Image corrompue et impossible à réparer')) {
+        errorMessage = 'Image corrompue et impossible à réparer. Veuillez utiliser une autre image.';
+        statusCode = 400;
+      } else if (error.message.includes('memory')) {
+        errorMessage = 'Image trop volumineuse pour être traitée';
+        statusCode = 413;
+      } else if (error.message.includes('timeout')) {
+        errorMessage = 'Traitement de l\'image trop long';
+        statusCode = 408;
+      }
+    }
+    
     return NextResponse.json(
       { 
-        error: 'Erreur lors de l\'optimisation de l\'image',
+        error: errorMessage,
         details: error instanceof Error ? error.message : 'Erreur inconnue'
       },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }

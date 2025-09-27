@@ -233,9 +233,9 @@ export function QuizEditForm({ quiz, userId }: QuizEditFormProps) {
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert("L'image doit faire moins de 5MB");
+    // Validate file size (max 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      alert("L'image doit faire moins de 20MB");
       return;
     }
 

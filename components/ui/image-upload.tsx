@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, Upload, Image as ImageIcon } from "lucide-react";
+import { X, Upload, Image as ImageIcon, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { ImageZoom } from "@/components/ui/image-zoom";
 import {
@@ -28,6 +28,7 @@ export function ImageUpload({
   path = "uploads",
 }: ImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (
@@ -42,17 +43,60 @@ export function ImageUpload({
       return;
     }
 
-    // Validate file size (max 10MB - plus généreux car l'optimisation se fait côté serveur)
-    if (file.size > 10 * 1024 * 1024) {
-      alert("L'image doit faire moins de 10MB");
+    // Validate file size (max 20MB - plus généreux car l'optimisation se fait côté serveur)
+    if (file.size > 20 * 1024 * 1024) {
+      alert("L'image doit faire moins de 20MB");
+      return;
+    }
+
+    // Validation supplémentaire
+    if (file.size === 0) {
+      alert("Le fichier est vide");
+      return;
+    }
+
+    // Vérifier que le fichier n'est pas corrompu en essayant de le lire
+    try {
+      const testUrl = URL.createObjectURL(file);
+      const testImg = new window.Image();
+
+      const imageCheck = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          URL.revokeObjectURL(testUrl);
+          reject(new Error("Timeout lors de la validation"));
+        }, 5000); // 5 secondes de timeout
+
+        testImg.onload = () => {
+          clearTimeout(timeout);
+          URL.revokeObjectURL(testUrl);
+          resolve(true);
+        };
+        testImg.onerror = () => {
+          clearTimeout(timeout);
+          URL.revokeObjectURL(testUrl);
+          reject(new Error("Image corrompue"));
+        };
+        testImg.src = testUrl;
+      });
+
+      await imageCheck;
+    } catch (error) {
+      alert(
+        "L'image semble corrompue. Veuillez utiliser une autre image ou la re-sauvegarder avec un autre logiciel (comme GIMP, Photoshop, ou un convertisseur en ligne)."
+      );
       return;
     }
 
     setIsUploading(true);
+    setUploadProgress(0);
 
     try {
-      // Optimiser l'image côté serveur avant l'upload
+      // Simuler la progression pour les gros fichiers
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 5, 90));
+      }, 200);
 
+      // Optimiser l'image côté serveur avant l'upload
       const formData = new FormData();
       formData.append("file", file);
       formData.append(
@@ -73,7 +117,10 @@ export function ImageUpload({
       });
 
       if (!optimizeResponse.ok) {
-        throw new Error("Erreur lors de l'optimisation de l'image");
+        const errorData = await optimizeResponse.json().catch(() => ({}));
+        const errorMessage =
+          errorData.error || "Erreur lors de l'optimisation de l'image";
+        throw new Error(errorMessage);
       }
 
       const optimizeResult = await optimizeResponse.json();
@@ -97,11 +144,21 @@ export function ImageUpload({
 
       // Upload de l'image optimisée vers Supabase Storage
       const result = await uploadImageToStorage(optimizedFile, path);
+
+      // Finaliser la progression
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+
       onChange(result.url);
     } catch (error) {
-      alert("Erreur lors de l'upload de l'image");
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Erreur lors de l'upload de l'image";
+      alert(errorMessage);
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -136,19 +193,35 @@ export function ImageUpload({
           </Button>
         </div>
       ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className="w-20 h-20 p-0 flex flex-col items-center justify-center border-dashed">
-          {isUploading ? (
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-          ) : (
-            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+        <div className="relative">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="w-20 h-20 p-0 flex flex-col items-center justify-center border-dashed">
+            {isUploading ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : (
+              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+            )}
+          </Button>
+          {isUploading && (
+            <div className="absolute -bottom-8 left-0 right-0 text-xs text-center text-muted-foreground">
+              <div className="flex items-center justify-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Optimisation...</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-1 mt-1">
+                <div
+                  className="bg-primary h-1 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
           )}
-        </Button>
+        </div>
       )}
 
       <Input

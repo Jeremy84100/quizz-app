@@ -70,7 +70,7 @@ Si la configuration automatique ne fonctionne pas, vous pouvez configurer manuel
 3. Cliquez sur "Create a new bucket"
 4. Nom : `quiz-images`
 5. Public : ✅ Activé
-6. File size limit : `5242880` (5MB)
+6. File size limit : `20971520` (20MB)
 7. Allowed MIME types : `image/jpeg,image/png,image/gif,image/webp`
 
 ### 2. Configurer les politiques RLS
