@@ -42,20 +42,63 @@ export function ImageUpload({
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert("L'image doit faire moins de 5MB");
+    // Validate file size (max 10MB - plus généreux car l'optimisation se fait côté serveur)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("L'image doit faire moins de 10MB");
       return;
     }
 
     setIsUploading(true);
 
     try {
-      // Upload to Supabase Storage
-      const result = await uploadImageToStorage(file, path);
+      // Optimiser l'image côté serveur avant l'upload
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append(
+        "options",
+        JSON.stringify({
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 85,
+          format: "webp",
+        })
+      );
+      formData.append("createThumbnail", "true");
+      formData.append("thumbnailSize", "300");
+
+      const optimizeResponse = await fetch("/api/optimize-image", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!optimizeResponse.ok) {
+        throw new Error("Erreur lors de l'optimisation de l'image");
+      }
+
+      const optimizeResult = await optimizeResponse.json();
+
+      if (!optimizeResult.success) {
+        throw new Error(optimizeResult.error || "Erreur d'optimisation");
+      }
+
+      // Convertir le buffer optimisé en File
+      const optimizedBuffer = Buffer.from(
+        optimizeResult.optimized.buffer,
+        "base64"
+      );
+      const optimizedFile = new File(
+        [optimizedBuffer],
+        file.name.replace(/\.[^/.]+$/, ".webp"),
+        {
+          type: "image/webp",
+        }
+      );
+
+      // Upload de l'image optimisée vers Supabase Storage
+      const result = await uploadImageToStorage(optimizedFile, path);
       onChange(result.url);
     } catch (error) {
-      console.error("Error uploading image:", error);
       alert("Erreur lors de l'upload de l'image");
     } finally {
       setIsUploading(false);
