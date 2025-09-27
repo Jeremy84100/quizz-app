@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    
     // Parser les options d'optimisation
     let optimizationOptions = {};
     if (options) {
